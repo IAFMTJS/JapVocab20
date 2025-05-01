@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="shortcut icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Japanse Woordenschat Quiz</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="theme-color" content="#2c3e50">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background-color: #111;
+      color: #f5f5f5;
+    }
+    .page {
+      display: none;
+      padding: 20px;
+      min-height: calc(100vh - 60px);
+      animation: fadeIn 0.3s ease-in-out;
+    }
+    .active {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from {opacity: 0;}
+      to {opacity: 1;}
+    }
+    h1, h2 {
+      color: #ffd700;
+    }
+    button {
+      background-color: #222;
+      color: #ffd700;
+      border: 1px solid #ffd700;
+      padding: 12px 20px;
+      margin: 8px 0;
+      border-radius: 8px;
+      font-size: 1.1em;
+      cursor: pointer;
+    }
+    input[type="text"], input[type="number"] {
+      padding: 10px;
+      width: 100%;
+      margin: 5px 0 15px;
+      border: none;
+      border-radius: 5px;
+      font-size: 1em;
+    }
+    .nav {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      display: flex;
+      background: #222;
+      border-top: 1px solid #555;
+    }
+    .nav button {
+      flex: 1;
+      margin: 0;
+      border: none;
+      font-size: 1em;
+      border-radius: 0;
+    }
+    .question-block {
+      margin: 20px 0;
+      padding: 15px;
+      background: #1c1c1c;
+      border-radius: 10px;
+    }
+    .emoji {
+      font-size: 2em;
+    }
+    .feedback {
+      margin-top: 15px;
+      font-size: 1.3em;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="page-start" class="page active">
+    <h1>Welkom bij de Japanse Woordenschat Quiz!</h1>
+    <input type="text" id="username" placeholder="Je naam" />
+    <input type="number" id="num-questions" placeholder="Aantal vragen" />
+    <button onclick="startQuiz()">Start Quiz</button>
+  </div>
+
+  <div id="page-quiz" class="page">
+    <h2 id="question-title"></h2>
+    <div id="question-block"></div>
+    <input type="text" id="text-answer" placeholder="Typ je antwoord" />
+    <div id="feedback" class="feedback"></div>
+    <div id="progress"></div>
+    <button onclick="submitAnswer()">Volgende vraag</button>
+  </div>
+
+  <div id="page-result" class="page">
+    <h2>Resultaten</h2>
+    <p id="score"></p>
+    <p id="time"></p>
+    <div id="corrections"></div>
+    <button onclick="startCorrection()" class="hidden">Start Correctieronde</button>
+  </div>
+
+  <div id="page-admin" class="page">
+    <h2>Woord Toevoegen</h2>
+    <input type="text" id="jp-new" placeholder="Japans" />
+    <input type="text" id="romaji-new" placeholder="Romaji" />
+    <input type="text" id="nl-new" placeholder="Nederlands" />
+    <input type="text" id="emoji-new" placeholder="Emoji" />
+    <input type="text" id="explanation-new" placeholder="Uitleg" />
+    <button onclick="addWord()">Voeg toe</button>
+    <p id="admin-status"></p>
+    <ul id="word-list"></ul>
+  </div>
+
+  <script>
+    function levenshtein(a, b) {
+      const matrix = Array.from({ length: b.length + 1 }, (_, i) =>
+        Array.from({ length: a.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+      );
+
+      for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+          matrix[i][j] = b[i - 1] === a[j - 1]
+            ? matrix[i - 1][j - 1]
+            : 1 + Math.min(matrix[i - 1][j], matrix[i][j - 1], matrix[i - 1][j - 1]);
+        }
+      }
+
+      return matrix[b.length][a.length];
+    }
+
+    let allWords = JSON.parse(localStorage.getItem("words")) || [
+      { jp: "たべる", nl: "eten", romaji: "taberu", emoji: "🍽️", explanation: "Werkwoord voor eten." },
+      { jp: "ねこ", nl: "kat", romaji: "neko", emoji: "🐱", explanation: "Populair huisdier in Japan." },
+      { jp: "みず", nl: "water", romaji: "mizu", emoji: "💧", explanation: "Drinkbaar en levensnoodzakelijk." },
+      { jp: "アイス", nl: "ijs", romaji: "aisu", emoji: "🍦", explanation: "Katakana voor 'ice' (ijs)." },
+      { jp: "くるま", nl: "auto", romaji: "kuruma", emoji: "🚗", explanation: "Voertuig met 4 wielen." }
+    ];
+
+    let quizData = [];
+    let currentQ = 0;
+    let correct = 0;
+    let user = "";
+    let userAnswers = [];
+    let corrections = [];
+
+    function showPage(id) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById(`page-${id}`).classList.add('active');
+    }
+
+    function shuffleArray(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+    }
+
+    function startQuiz() {
+      user = document.getElementById("username").value.trim();
+      const num = parseInt(document.getElementById("num-questions").value) || 5;
+      if (!user) return alert("Typ een gebruikersnaam in.");
+      if (allWords.length < num) return alert("Niet genoeg woorden in database.");
+
+      shuffleArray(allWords);
+      quizData = allWords.slice(0, num);
+      currentQ = 0;
+      correct = 0;
+      userAnswers = [];
+      corrections = [];
+      showPage("quiz");
+      showQuestion();
+    }
+
+    function showQuestion() {
+      const q = quizData[currentQ];
+      const askRomaji = Math.random() < 0.5;
+      document.getElementById("feedback").textContent = "";
+      document.getElementById("text-answer").value = "";
+
+      let prompt = askRomaji
+        ? `Wat betekent dit Japans woord (${q.jp})?`
+        : `Wat is het Japanse woord voor "${q.nl}"?`;
+      document.getElementById("question-title").textContent = `Vraag ${currentQ + 1}`;
+      document.getElementById("question-block").innerHTML = `
+        <div class="emoji">${q.emoji}</div>
+        <p>${prompt}</p>
+      `;
+      document.getElementById("progress").textContent = `Vraag ${currentQ + 1} van ${quizData.length}`;
+
+      quizData[currentQ].askRomaji = askRomaji;
+    }
+
+    function submitAnswer() {
+      const ans = document.getElementById("text-answer").value.trim().toLowerCase();
+      if (!ans) return;
+
+      const q = quizData[currentQ];
+      const correctAns = q.askRomaji ? q.nl.toLowerCase() : q.jp.toLowerCase();
+
+      const isCorrect = ans === correctAns;
+      if (isCorrect) correct++;
+      else corrections.push({ ...
